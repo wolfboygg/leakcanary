@@ -10,7 +10,7 @@ import shark.internal.friendly.mapNativeSizes
 object AndroidMetadataExtractor : MetadataExtractor {
   override fun extractMetadata(graph: HeapGraph): Map<String, String> {
     val metadata = mutableMapOf<String, String>()
-
+    println("GUO:extractMetadata")
     val build = AndroidBuildMirror.fromHeapGraph(graph)
     metadata["Build.VERSION.SDK_INT"] = build.sdkInt.toString()
     metadata["Build.MANUFACTURER"] = build.manufacturer
@@ -30,7 +30,7 @@ object AndroidMetadataExtractor : MetadataExtractor {
 
   private fun readHeapTotalBytes(graph: HeapGraph): Int {
     return graph.objects.sumBy { heapObject ->
-      when(heapObject) {
+      when (heapObject) {
         is HeapInstance -> {
           heapObject.byteSize
         }
@@ -49,11 +49,16 @@ object AndroidMetadataExtractor : MetadataExtractor {
     val bitmapClass = graph.findClassByName("android.graphics.Bitmap") ?: return
 
     val maxDisplayPixels =
-      graph.findClassByName("android.util.DisplayMetrics")?.directInstances?.map { instance ->
-        val width = instance["android.util.DisplayMetrics", "widthPixels"]?.value?.asInt ?: 0
-        val height = instance["android.util.DisplayMetrics", "heightPixels"]?.value?.asInt ?: 0
-        width * height
-      }?.max() ?: 0
+      graph
+        .findClassByName("android.util.DisplayMetrics")
+        ?.directInstances
+        ?.map { instance ->
+          val width = instance["android.util.DisplayMetrics", "widthPixels"]?.value?.asInt ?: 0
+          val height = instance["android.util.DisplayMetrics", "heightPixels"]?.value?.asInt ?: 0
+          width * height
+        }
+        ?.max()
+        ?: 0
 
     val maxDisplayPixelsWithThreshold = (maxDisplayPixels * 1.1).toInt()
 
@@ -91,34 +96,44 @@ object AndroidMetadataExtractor : MetadataExtractor {
   }
 
   private fun readProcessName(graph: HeapGraph): String {
-    val activityThread = graph.findClassByName("android.app.ActivityThread")
-      ?.get("sCurrentActivityThread")
-      ?.valueAsInstance
-    val appBindData = activityThread?.get("android.app.ActivityThread", "mBoundApplication")
-      ?.valueAsInstance
-    val appInfo = appBindData?.get("android.app.ActivityThread\$AppBindData", "appInfo")
-      ?.valueAsInstance
+    val activityThread =
+      graph
+        .findClassByName("android.app.ActivityThread")
+        ?.get("sCurrentActivityThread")
+        ?.valueAsInstance
+    val appBindData =
+      activityThread?.get("android.app.ActivityThread", "mBoundApplication")?.valueAsInstance
+    val appInfo =
+      appBindData?.get("android.app.ActivityThread\$AppBindData", "appInfo")?.valueAsInstance
 
-    return appInfo?.get(
-      "android.content.pm.ApplicationInfo", "processName"
-    )?.valueAsInstance?.readAsJavaString() ?: "Unknown"
+    return appInfo
+      ?.get("android.content.pm.ApplicationInfo", "processName")
+      ?.valueAsInstance
+      ?.readAsJavaString()
+      ?: "Unknown"
   }
 
   private fun MutableMap<String, String>.putDbLabels(graph: HeapGraph) {
     val dbClass = graph.findClassByName("android.database.sqlite.SQLiteDatabase") ?: return
 
-    val openDbLabels = dbClass.instances.mapNotNull { instance ->
-      val config =
-        instance["android.database.sqlite.SQLiteDatabase", "mConfigurationLocked"]?.valueAsInstance
-          ?: return@mapNotNull null
-      val label =
-        config["android.database.sqlite.SQLiteDatabaseConfiguration", "label"]?.value?.readAsJavaString()
-          ?: return@mapNotNull null
-      val open =
-        instance["android.database.sqlite.SQLiteDatabase", "mConnectionPoolLocked"]?.value?.isNonNullReference
-          ?: return@mapNotNull null
-      label to open
-    }
+    val openDbLabels =
+      dbClass.instances.mapNotNull { instance ->
+        val config =
+          instance["android.database.sqlite.SQLiteDatabase", "mConfigurationLocked"]
+            ?.valueAsInstance
+            ?: return@mapNotNull null
+        val label =
+          config["android.database.sqlite.SQLiteDatabaseConfiguration", "label"]
+            ?.value
+            ?.readAsJavaString()
+            ?: return@mapNotNull null
+        val open =
+          instance["android.database.sqlite.SQLiteDatabase", "mConnectionPoolLocked"]
+            ?.value
+            ?.isNonNullReference
+            ?: return@mapNotNull null
+        label to open
+      }
 
     openDbLabels.forEachIndexed { index, (label, open) ->
       this["Db ${index + 1}"] = (if (open) "open " else "closed ") + label
