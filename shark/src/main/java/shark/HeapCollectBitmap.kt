@@ -3,9 +3,11 @@ package shark
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.util.*
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import javax.imageio.ImageIO
+import kotlin.collections.ArrayList
 import shark.HprofHeapGraph.Companion.openHeapGraph
 
 open class HeapCollectBitmap {
@@ -55,7 +57,7 @@ open class HeapCollectBitmap {
         ?: 0
 
     val maxDisplayPixelsWithThreshold = (maxDisplayPixels * 1.1).toInt()
-
+    var count = 0
     bitmapClass.instances.forEach { bitmap ->
       val width = bitmap["android.graphics.Bitmap", "mWidth"]?.value?.asInt ?: 0
       val height = bitmap["android.graphics.Bitmap", "mHeight"]?.value?.asInt ?: 0
@@ -64,8 +66,9 @@ open class HeapCollectBitmap {
         println("width:$width")
         println("height:$height")
         println("bytePrimitiveArray:$bytePrimitiveArray")
-        return
+        return@forEach
       }
+      count++
       val byteArrayDump =
         bytePrimitiveArray.readRecord()
           as HprofRecord.HeapDumpRecord.ObjectRecord.PrimitiveArrayDumpRecord.ByteArrayDump
@@ -75,6 +78,7 @@ open class HeapCollectBitmap {
       val bitmapEntry = BitmapEntry(Md5Helper.getMd5(byteArray), width, height, byteArray, isLarge)
       add(bitmapEntry)
     }
+    println("bitmap size $count")
   }
 
   private fun recoverBitmap(name: String, list: java.util.ArrayList<BitmapEntry>) {
@@ -91,16 +95,9 @@ open class HeapCollectBitmap {
         val img = BitmapDecoder.getBitmap(HprofBitmapProvider(it.mBuffer, it.mWidth, it.mHeight))
         // Since bmp format is not compatible with alpha channel, we export buffer as png instead.
         // Since bmp format is not compatible with alpha channel, we export buffer as png instead.
-
         var largeStr = if (it.isLargeBitmap) "large" else ""
         val pngName: String =
-          "buffer_contents" +
-            "/" +
-            largeStr +
-            it.mBufferHash +
-            "_" +
-            System.currentTimeMillis() +
-            ".png"
+          "buffer_contents" + "/" + largeStr + it.mBufferHash + "_" + UUID.randomUUID() + ".png"
         try {
           zos.putNextEntry(ZipEntry(pngName))
           ImageIO.write(img, "png", zos)
@@ -109,6 +106,8 @@ open class HeapCollectBitmap {
           zos.closeEntry()
         }
       }
+    } catch (e: Exception) {
+      println("crash info is:${e.toString()}")
     } finally {
       zos?.close()
     }
